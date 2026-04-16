@@ -2,6 +2,21 @@
 
 Kernel patch fixing incorrect txpower reporting in the Linux mt76 driver for MT7921-based WiFi adapters (MT7921U, MT7922, and related chipsets).
 
+## Status
+
+**v4 was superseded on 2026-03-21** when MediaTek kernel engineer Sean Wang took over the rework, consolidating the fix into shared `mt76_connac` code so MT7921, MT7922, and MT7925 all benefit from a single patch rather than per-chip duplication.
+
+Sean Wang's **v2 series (3 patches)** was posted to linux-wireless on 2026-04-01 (1/3 title: `wifi: mt76: connac: use a helper to cache txpower_cur`). Trailers carried forward from this repo's work:
+
+- All 3 patches: `Reported-by: Devin Wittmayer <lucid_duck@justthetip.ca>` and `Tested-by: Devin Wittmayer <lucid_duck@justthetip.ca>`
+- Patches 1 and 2: additionally `Co-developed-by: Devin Wittmayer <lucid_duck@justthetip.ca>` and `Signed-off-by: Devin Wittmayer <lucid_duck@justthetip.ca>`
+
+Series is awaiting merge by Felix Fietkau into the mt76 tree, then forward to wireless-next and mainline.
+
+Everything below documents the v1-v4 local history that led to Sean's rework. The technical analysis of the root bug (rate power loop discarding `txpower_cur`, and mt7921's `add_chanctx` not updating `phy->chandef`) is what Sean's v2 builds on.
+
+---
+
 ## The Problem
 
 The mt7921 driver never updates `phy->txpower_cur` from the rate power configuration sent to firmware. `mt76_get_txpower()` reports bogus values via nl80211 -- typically 3 dBm regardless of actual regulatory or SAR limits:
@@ -21,7 +36,7 @@ Two issues compound:
 
 2. mt7921 uses the chanctx model but its `add_chanctx` callback does not update `phy->chandef`, leaving it stale after association. The rate power loop's channel comparison then fails silently.
 
-## The Fix (v4)
+## The Fix (v4, superseded)
 
 Two changes in one patch:
 
@@ -59,13 +74,14 @@ Independent testing by sam8641 (MT7921U USB + MT7922 PCIe, US regulatory, Debian
 | v1 | 2026-01-25 | Store `hw->conf.power_level` in `set_rate_txpower` | Rejected: wrong source (Felix Fietkau) |
 | v2 | 2026-01-30 | Read `bss_conf.txpower` in `bss_info_changed` | Rejected: should come from rate power loop (Sean Wang) |
 | v3 | 2026-03-17 | Rate loop store + chanctx calls + BSS_CHANGED_TXPOWER | Rejected: chanctx calls too heavy, BSS_CHANGED breaks multi-vif (Sean Wang) |
-| v4 | 2026-03-19 | Rate loop store + lightweight helper + path delta fix | **Submitted, awaiting review** |
+| v4 | 2026-03-19 | Rate loop store + lightweight helper + path delta fix | Superseded: Sean Wang took over the rework on 2026-03-21, consolidating into shared connac code |
+| Sean v2 | 2026-04-01 | Shared `mt76_connac` path with `txpower_cur` cached via helper | Posted to linux-wireless. Reported-by + Tested-by on all 3 patches; Co-developed-by + Signed-off-by on patches 1 and 2. Awaiting Felix Fietkau merge. |
 
 ## Upstream Status
 
-- **Mailing list:** Submitted to linux-wireless 2026-03-19
-- **Patchwork:** [Link](https://patchwork.kernel.org/project/linux-wireless/patch/20260130215458.52886-1-lucid_duck@justthetip.ca/)
-- **Lore:** [Search](https://lore.kernel.org/linux-wireless/?q=lucid_duck%40justthetip.ca)
+- **Current (Sean Wang v2):** Posted to linux-wireless 2026-04-01, awaiting Felix Fietkau merge. Lore search: [mt76 txpower_cur](https://lore.kernel.org/linux-wireless/?q=txpower_cur)
+- **Lore (all submissions):** [lucid_duck@justthetip.ca](https://lore.kernel.org/linux-wireless/?q=lucid_duck%40justthetip.ca)
+- **v1 patchwork (historical):** [Link](https://patchwork.kernel.org/project/linux-wireless/patch/20260130215458.52886-1-lucid_duck@justthetip.ca/)
 - **Community thread:** [morrownr/USB-WiFi#700](https://github.com/morrownr/USB-WiFi/issues/700)
 
 ## Files
