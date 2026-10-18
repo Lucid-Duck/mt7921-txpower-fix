@@ -11,7 +11,7 @@ Sean Wang's **v2 series (3 patches)** was posted to linux-wireless on 2026-04-01
 - All 3 patches: `Reported-by: Devin Wittmayer <lucid_duck@justthetip.ca>` and `Tested-by: Devin Wittmayer <lucid_duck@justthetip.ca>`
 - Patches 1 and 2: additionally `Co-developed-by: Devin Wittmayer <lucid_duck@justthetip.ca>` and `Signed-off-by: Devin Wittmayer <lucid_duck@justthetip.ca>`
 
-Series is awaiting merge by Felix Fietkau into the mt76 tree, then forward to wireless-next and mainline.
+All three patches are in mainline and first shipped in Linux 7.2: [`8286bbf62dcc`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=8286bbf62dcc), [`317bc1a0590e`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=317bc1a0590e) and [`879d754e48f6`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=879d754e48f6). This repo is archived.
 
 Everything below documents the v1-v4 local history that led to Sean's rework. The technical analysis of the root bug (rate power loop discarding `txpower_cur`, and mt7921's `add_chanctx` not updating `phy->chandef`) is what Sean's v2 builds on.
 
@@ -19,7 +19,7 @@ Everything below documents the v1-v4 local history that led to Sean's rework. Th
 
 ## The Problem
 
-The mt7921 driver never updates `phy->txpower_cur` from the rate power configuration sent to firmware. `mt76_get_txpower()` reports bogus values via nl80211 -- typically 3 dBm regardless of actual regulatory or SAR limits:
+The mt7921 driver never updates `phy->txpower_cur` from the rate power configuration sent to firmware. `mt76_get_txpower()` reports bogus values via nl80211, typically 3 dBm regardless of actual regulatory or SAR limits:
 
 ```
 $ iw dev wlan0 info | grep txpower
@@ -32,7 +32,7 @@ This affects all MT7921/MT7922 devices on all bands. hcxdumptool and other tools
 
 Two issues compound:
 
-1. The rate power loop in `mt76_connac_mcu_rate_txpower_band()` computes the correct bounded TX power per channel but **discards the return value**. The equivalent mt7915 code stores it to `phy->txpower_cur` -- the mt7921 connac path does not.
+1. The rate power loop in `mt76_connac_mcu_rate_txpower_band()` computes the correct bounded TX power per channel but **discards the return value**. The equivalent mt7915 code stores it to `phy->txpower_cur`; the mt7921 connac path does not.
 
 2. mt7921 uses the chanctx model but its `add_chanctx` callback does not update `phy->chandef`, leaving it stale after association. The rate power loop's channel comparison then fails silently.
 
@@ -40,7 +40,7 @@ Two issues compound:
 
 Two changes in one patch:
 
-- **Capture the rate power loop result** in `mt76_connac_mcu_rate_txpower_band()` and store to `txpower_cur` when processing the current channel. Subtract the multi-chain path delta before storing, since `mt76_get_txpower()` adds it back when reporting -- matching how mt7915 handles this via `mt76_get_power_bound()`.
+- **Capture the rate power loop result** in `mt76_connac_mcu_rate_txpower_band()` and store to `txpower_cur` when processing the current channel. Subtract the multi-chain path delta before storing, since `mt76_get_txpower()` adds it back when reporting, matching how mt7915 handles this via `mt76_get_power_bound()`.
 
 - **Sync `phy->chandef` from chanctx** in `add_chanctx` and `change_chanctx`, with a lightweight `mt7921_update_txpower_cur()` helper that recomputes the bounded power for the current channel without reprogramming firmware rate tables.
 
@@ -75,18 +75,18 @@ Independent testing by sam8641 (MT7921U USB + MT7922 PCIe, US regulatory, Debian
 | v2 | 2026-01-30 | Read `bss_conf.txpower` in `bss_info_changed` | Rejected: should come from rate power loop (Sean Wang) |
 | v3 | 2026-03-17 | Rate loop store + chanctx calls + BSS_CHANGED_TXPOWER | Rejected: chanctx calls too heavy, BSS_CHANGED breaks multi-vif (Sean Wang) |
 | v4 | 2026-03-19 | Rate loop store + lightweight helper + path delta fix | Superseded: Sean Wang took over the rework on 2026-03-21, consolidating into shared connac code |
-| Sean v2 | 2026-04-01 | Shared `mt76_connac` path with `txpower_cur` cached via helper | Posted to linux-wireless. Reported-by + Tested-by on all 3 patches; Co-developed-by + Signed-off-by on patches 1 and 2. Awaiting Felix Fietkau merge. |
+| Sean v2 | 2026-04-01 | Shared `mt76_connac` path with `txpower_cur` cached via helper | Posted to linux-wireless. Reported-by + Tested-by on all 3 patches; Co-developed-by + Signed-off-by on patches 1 and 2. In mainline, first shipped in 7.2. |
 
 ## Upstream Status
 
-- **Current (Sean Wang v2):** Posted to linux-wireless 2026-04-01, awaiting Felix Fietkau merge. Lore search: [mt76 txpower_cur](https://lore.kernel.org/linux-wireless/?q=txpower_cur)
+- **Sean Wang v2:** posted to linux-wireless 2026-04-01, in mainline as `8286bbf62dcc`, `317bc1a0590e` and `879d754e48f6`, first shipped in 7.2. Lore search: [mt76 txpower_cur](https://lore.kernel.org/linux-wireless/?q=txpower_cur)
 - **Lore (all submissions):** [lucid_duck@justthetip.ca](https://lore.kernel.org/linux-wireless/?q=lucid_duck%40justthetip.ca)
 - **v1 patchwork (historical):** [Link](https://patchwork.kernel.org/project/linux-wireless/patch/20260130215458.52886-1-lucid_duck@justthetip.ca/)
 - **Community thread:** [morrownr/USB-WiFi#700](https://github.com/morrownr/USB-WiFi/issues/700)
 
 ## Files
 
-- `0001-wifi-mt76-mt7921-fix-txpower-reporting-from-rate-pow.patch` -- The v4 kernel patch (2 files changed, 41 insertions, 3 deletions)
+- `0001-wifi-mt76-mt7921-fix-txpower-reporting-from-rate-pow.patch`: the v4 kernel patch (2 files changed, 41 insertions, 3 deletions)
 
 ## Applying the Patch
 
@@ -102,11 +102,11 @@ make -C /lib/modules/$(uname -r)/build M=drivers/net/wireless/mediatek/mt76 modu
 
 ## Stable Backport Note
 
-v4 depends on commit `56e3867` which renamed `mt76_tx_power_nss_delta()` to `mt76_tx_power_path_delta()`. For kernels before ~6.18, replace `mt76_tx_power_path_delta` with `mt76_tx_power_nss_delta` -- they return identical values for 1-4 chain devices.
+v4 depends on commit `56e3867` which renamed `mt76_tx_power_nss_delta()` to `mt76_tx_power_path_delta()`. For kernels before ~6.18, replace `mt76_tx_power_path_delta` with `mt76_tx_power_nss_delta`; they return identical values for 1-4 chain devices.
 
 ## Known Limitations (follow-up work)
 
-- `iw set txpower fixed` not reflected in managed/station mode (BSS_CHANGED_TXPOWER dropped per reviewer feedback -- needs a multi-vif-safe approach). Works in AP mode via `IEEE80211_CONF_CHANGE_POWER`.
+- `iw set txpower fixed` not reflected in managed/station mode (BSS_CHANGED_TXPOWER dropped per reviewer feedback; it needs a multi-vif-safe approach). Works in AP mode via `IEEE80211_CONF_CHANGE_POWER`.
 - MT7925 needs analogous changes in its own `main.c` (the connac common code fix benefits it, but without the chandef sync the channel comparison never matches).
 
 ## License
